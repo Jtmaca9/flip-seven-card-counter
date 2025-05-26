@@ -54,12 +54,50 @@ export default function PlayerBox({
     return "border-gray-300 bg-white/90";
   };
 
-  const getBustProbabilityColor = () => {
-    if (bustProbability === 0) return "text-gray-500";
-    if (bustProbability < 20) return "text-green-600";
-    if (bustProbability < 40) return "text-yellow-600";
-    if (bustProbability < 60) return "text-orange-600";
-    return "text-red-600";
+  const getBustProbabilityDisplay = () => {
+    if (
+      player.hasBusted ||
+      player.hasStayed ||
+      player.currentRoundCards.length === 0
+    ) {
+      return null;
+    }
+
+    let bgColor, textColor, riskText;
+    if (bustProbability === 0) {
+      bgColor = "bg-gray-200";
+      textColor = "text-gray-600";
+      riskText = "SAFE";
+    } else if (bustProbability < 15) {
+      bgColor = "bg-green-100";
+      textColor = "text-green-700";
+      riskText = "LOW RISK";
+    } else if (bustProbability < 30) {
+      bgColor = "bg-yellow-100";
+      textColor = "text-yellow-700";
+      riskText = "MEDIUM RISK";
+    } else if (bustProbability < 50) {
+      bgColor = "bg-orange-100";
+      textColor = "text-orange-700";
+      riskText = "HIGH RISK";
+    } else {
+      bgColor = "bg-red-100";
+      textColor = "text-red-700";
+      riskText = "DANGER";
+    }
+
+    return (
+      <div
+        className={`${bgColor} ${textColor} p-3 rounded-lg border-2 border-dashed border-current`}
+      >
+        <div className="text-center">
+          <div className="text-lg font-black">
+            {bustProbability.toFixed(1)}%
+          </div>
+          <div className="text-xs font-bold tracking-wide">{riskText}</div>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -69,7 +107,7 @@ export default function PlayerBox({
       {/* Player Header */}
       <div className="text-center mb-3">
         <h3 className="text-lg font-bold text-gray-800">{player.name}</h3>
-        <div className="flex justify-between text-sm">
+        <div className="flex justify-between text-sm mb-2">
           <span className="text-gray-600">
             Round: {player.currentRoundScore}
           </span>
@@ -78,32 +116,31 @@ export default function PlayerBox({
 
         {/* Status indicators */}
         {player.hasBusted && (
-          <div className="bg-red-500 text-white text-xs font-bold py-1 px-2 rounded mt-1">
+          <div className="bg-red-500 text-white text-sm font-bold py-2 px-3 rounded-lg mt-2">
             💥 BUSTED
           </div>
         )}
         {player.hasStayed && (
-          <div className="bg-green-500 text-white text-xs font-bold py-1 px-2 rounded mt-1">
+          <div className="bg-green-500 text-white text-sm font-bold py-2 px-3 rounded-lg mt-2">
             ✓ STAYED
           </div>
         )}
-
-        {/* Bust Probability */}
-        {!player.hasBusted &&
-          !player.hasStayed &&
-          player.currentRoundCards.length > 0 && (
-            <div
-              className={`text-xs font-semibold mt-1 ${getBustProbabilityColor()}`}
-            >
-              Bust Risk: {bustProbability.toFixed(1)}%
-            </div>
-          )}
       </div>
+
+      {/* Bust Probability - Prominent Display */}
+      {getBustProbabilityDisplay() && (
+        <div className="mb-4">
+          <div className="text-xs font-semibold text-gray-600 mb-1 text-center">
+            🎯 BUST PROBABILITY
+          </div>
+          {getBustProbabilityDisplay()}
+        </div>
+      )}
 
       {/* Current Cards Display */}
       <div className="mb-3">
         <div className="text-xs font-semibold text-gray-600 mb-1">
-          Cards in Hand:
+          Cards in Hand: ({player.currentRoundCards.length}/7)
         </div>
         <div className="min-h-[20px] text-xs">
           {player.currentRoundCards.length > 0 && (
@@ -185,8 +222,9 @@ export default function PlayerBox({
               onClick={() => onDrawCard(player.id, card)}
               disabled={isCardDisabled(card)}
               className={getCardButtonClass(card)}
+              title={card === "Freeze" ? "Auto-stays when drawn" : undefined}
             >
-              {card}
+              {card === "Freeze" ? "Freeze ⏸️" : card}
             </button>
           ))}
         </div>

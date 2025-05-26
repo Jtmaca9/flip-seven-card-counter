@@ -23,6 +23,7 @@ interface GameBoardProps {
 export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [deckState, setDeckState] = useState<{ [key: string]: number }>({});
+  const [discardPile, setDiscardPile] = useState<{ [key: string]: number }>({});
   const [round, setRound] = useState(1);
 
   // Initialize deck state with correct card quantities
@@ -50,6 +51,44 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
     return deck;
   };
 
+  // Initialize empty discard pile
+  const initializeDiscardPile = () => {
+    const discard: { [key: string]: number } = {};
+
+    // Initialize all card types to 0
+    for (let i = 0; i <= 12; i++) {
+      discard[i.toString()] = 0;
+    }
+    discard["+2"] = 0;
+    discard["+4"] = 0;
+    discard["+6"] = 0;
+    discard["+8"] = 0;
+    discard["+10"] = 0;
+    discard["X2"] = 0;
+    discard["Freeze"] = 0;
+    discard["Flip3"] = 0;
+    discard["2ndChance"] = 0;
+
+    return discard;
+  };
+
+  // Shuffle discard pile back into deck when deck is empty
+  const shuffleDiscardIntoDeck = () => {
+    setDeckState((prev) => {
+      const newDeck = { ...prev };
+      Object.entries(discardPile).forEach(([card, count]) => {
+        newDeck[card] = (newDeck[card] || 0) + count;
+      });
+      return newDeck;
+    });
+    setDiscardPile(initializeDiscardPile());
+  };
+
+  // Check if deck needs reshuffling
+  const getTotalCardsInDeck = () => {
+    return Object.values(deckState).reduce((sum, count) => sum + count, 0);
+  };
+
   // Initialize players
   useEffect(() => {
     const initialPlayers: Player[] = [];
@@ -67,6 +106,7 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
     }
     setPlayers(initialPlayers);
     setDeckState(initializeDeck());
+    setDiscardPile(initializeDiscardPile());
   }, [numPlayers]);
 
   // Check if round is complete
@@ -106,6 +146,11 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
 
   // Update deck state when a card is drawn
   const drawCard = (playerId: number, card: string) => {
+    // Check if we need to shuffle discard pile first
+    if (getTotalCardsInDeck() === 0) {
+      shuffleDiscardIntoDeck();
+    }
+
     setDeckState((prev) => ({
       ...prev,
       [card]: Math.max(0, (prev[card] || 0) - 1),
@@ -129,16 +174,29 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
                 : calculateRoundScore(newCards, player.currentRoundModifiers),
             };
           } else {
-            // Modifier card
+            // Modifier/Action card
             const newModifiers = [...player.currentRoundModifiers, card];
-            return {
-              ...player,
-              currentRoundModifiers: newModifiers,
-              currentRoundScore: calculateRoundScore(
-                player.currentRoundCards,
-                newModifiers
-              ),
-            };
+            const newScore = calculateRoundScore(
+              player.currentRoundCards,
+              newModifiers
+            );
+
+            // Check if it's a Freeze card - automatically make player stay
+            if (card === "Freeze") {
+              return {
+                ...player,
+                currentRoundModifiers: newModifiers,
+                currentRoundScore: newScore,
+                hasStayed: true,
+                totalScore: player.totalScore + newScore,
+              };
+            } else {
+              return {
+                ...player,
+                currentRoundModifiers: newModifiers,
+                currentRoundScore: newScore,
+              };
+            }
           }
         }
         return player;
@@ -192,8 +250,49 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
     );
   };
 
+  // Move all used cards to discard pile at end of round
+  const discardUsedCards = () => {
+    setDiscardPile((prev) => {
+      const newDiscard = { ...prev };
+
+      players.forEach((player) => {
+        // Add number cards to discard
+        player.currentRoundCards.forEach((card) => {
+          newDiscard[card.toString()] = (newDiscard[card.toString()] || 0) + 1;
+        });
+
+        // Add modifier cards to discard
+        player.currentRoundModifiers.forEach((card) => {
+          newDiscard[card] = (newDiscard[card] || 0) + 1;
+        });
+      });
+
+      return newDiscard;
+    });
+  };
+
+  // Manually discard a card from deck to discard pile
+  const discardCard = (card: string) => {
+    const currentCount = deckState[card] || 0;
+    if (currentCount > 0) {
+      setDeckState((prev) => ({
+        ...prev,
+        [card]: currentCount - 1,
+      }));
+
+      setDiscardPile((prev) => ({
+        ...prev,
+        [card]: (prev[card] || 0) + 1,
+      }));
+    }
+  };
+
   // Start new round
   const startNewRound = () => {
+    // First, discard all used cards
+    discardUsedCards();
+
+    // Clear player hands and reset round state
     setPlayers((prev) =>
       prev.map((player) => ({
         ...player,
@@ -204,7 +303,7 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
         hasStayed: false,
       }))
     );
-    setDeckState(initializeDeck());
+
     setRound((prev) => prev + 1);
   };
 
@@ -248,7 +347,11 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
       </div>
 
       {/* Deck Tracker */}
-      <DeckTracker deckState={deckState} />
+      <DeckTracker
+        deckState={deckState}
+        discardPile={discardPile}
+        onDiscardCard={discardCard}
+      />
 
       {/* Players Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
