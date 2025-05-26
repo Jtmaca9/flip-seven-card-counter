@@ -46,7 +46,7 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
     // Action cards
     deck["Freeze"] = 3;
     deck["Flip3"] = 3;
-    deck["2ndChance"] = 3;
+    deck["2nd Chance"] = 3;
 
     return deck;
   };
@@ -67,7 +67,7 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
     discard["X2"] = 0;
     discard["Freeze"] = 0;
     discard["Flip3"] = 0;
-    discard["2ndChance"] = 0;
+    discard["2nd Chance"] = 0;
 
     return discard;
   };
@@ -125,17 +125,21 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
       return 0;
     }
 
+    // If player has "2nd Chance" in hand, they can't bust on next draw
+    if (player.currentRoundModifiers.includes("2nd Chance")) {
+      return 0;
+    }
+
     const cardsInHand = new Set(player.currentRoundCards);
     let bustCards = 0;
     let totalRemainingCards = 0;
 
+    // Count ALL cards in deck for total (to match deck tracker percentages)
     Object.entries(deckState).forEach(([card, count]) => {
-      // Only count number cards for bust probability
-      if (!isNaN(parseInt(card))) {
-        totalRemainingCards += count;
-        if (cardsInHand.has(parseInt(card))) {
-          bustCards += count;
-        }
+      totalRemainingCards += count;
+      // Only count bust cards from number cards the player already has
+      if (!isNaN(parseInt(card)) && cardsInHand.has(parseInt(card))) {
+        bustCards += count;
       }
     });
 
@@ -156,30 +160,122 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
       [card]: Math.max(0, (prev[card] || 0) - 1),
     }));
 
+    // Check if this would trigger second chance before updating player state
+    const player = players.find((p) => p.id === playerId);
+    if (player) {
+      const numberCards = [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+      ];
+      const isNumberCard = numberCards.includes(card);
+
+      if (isNumberCard) {
+        const cardNum = parseInt(card);
+        const wouldBust = player.currentRoundCards.includes(cardNum);
+        const hasSecondChance =
+          player.currentRoundModifiers.includes("2nd Chance");
+
+        if (wouldBust && hasSecondChance) {
+          // Use second chance: discard both cards immediately
+          setDiscardPile((prev) => ({
+            ...prev,
+            [card]: (prev[card] || 0) + 1,
+            "2nd Chance": (prev["2nd Chance"] || 0) + 1,
+          }));
+
+          // Update player state without adding the card
+          setPlayers((prev) =>
+            prev.map((p) => {
+              if (p.id === playerId) {
+                const newModifiers = p.currentRoundModifiers.filter(
+                  (mod) => mod !== "2nd Chance"
+                );
+                return {
+                  ...p,
+                  currentRoundModifiers: newModifiers,
+                  currentRoundScore: calculateRoundScore(
+                    p.currentRoundCards,
+                    newModifiers
+                  ),
+                };
+              }
+              return p;
+            })
+          );
+          return; // Exit early, don't process normal card logic
+        }
+      }
+    }
+
     setPlayers((prev) =>
       prev.map((player) => {
         if (player.id === playerId) {
-          if (!isNaN(parseInt(card))) {
-            // Number card
+          // Define card types for proper identification
+          const numberCards = [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
+            "12",
+          ];
+          const isNumberCard = numberCards.includes(card);
+
+          if (isNumberCard) {
+            // Number card (normal case - second chance already handled above)
             const cardNum = parseInt(card);
             const newCards = [...player.currentRoundCards, cardNum];
-            const hasBusted = player.currentRoundCards.includes(cardNum);
+            const wouldBust = player.currentRoundCards.includes(cardNum);
 
             return {
               ...player,
               currentRoundCards: newCards,
-              hasBusted,
-              currentRoundScore: hasBusted
+              hasBusted: wouldBust,
+              currentRoundScore: wouldBust
                 ? 0
                 : calculateRoundScore(newCards, player.currentRoundModifiers),
             };
           } else {
-            // Modifier/Action card
+            // Action/Modifier card
             const newModifiers = [...player.currentRoundModifiers, card];
             const newScore = calculateRoundScore(
               player.currentRoundCards,
               newModifiers
             );
+
+            // Check if player already has this action card (except modifiers like +2, +4, etc.)
+            const actionCards = ["Freeze", "Flip3", "2nd Chance"];
+            if (
+              actionCards.includes(card) &&
+              player.currentRoundModifiers.includes(card)
+            ) {
+              // Auto-discard duplicate action card
+              setDiscardPile((prev) => ({
+                ...prev,
+                [card]: (prev[card] || 0) + 1,
+              }));
+
+              // Don't add to hand, keep current state
+              return player;
+            }
 
             // Check if it's a Freeze card - automatically make player stay
             if (card === "Freeze") {
@@ -195,6 +291,68 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
                 ...player,
                 currentRoundModifiers: newModifiers,
                 currentRoundScore: newScore,
+              };
+            }
+          }
+        }
+        return player;
+      })
+    );
+  };
+
+  // Undo a card draw (remove from hand and put back in deck)
+  const undoCardDraw = (
+    playerId: number,
+    card: string,
+    isModifier: boolean = false
+  ) => {
+    setPlayers((prev) =>
+      prev.map((player) => {
+        if (player.id === playerId) {
+          if (isModifier) {
+            // Remove modifier card
+            const newModifiers = [...player.currentRoundModifiers];
+            const cardIndex = newModifiers.findIndex((mod) => mod === card);
+            if (cardIndex > -1) {
+              newModifiers.splice(cardIndex, 1);
+
+              // Put card back in deck
+              setDeckState((prevDeck) => ({
+                ...prevDeck,
+                [card]: (prevDeck[card] || 0) + 1,
+              }));
+
+              return {
+                ...player,
+                currentRoundModifiers: newModifiers,
+                currentRoundScore: calculateRoundScore(
+                  player.currentRoundCards,
+                  newModifiers
+                ),
+                hasBusted: false, // Reset bust state when undoing
+              };
+            }
+          } else {
+            // Remove number card
+            const newCards = [...player.currentRoundCards];
+            const cardIndex = newCards.findIndex((c) => c === parseInt(card));
+            if (cardIndex > -1) {
+              newCards.splice(cardIndex, 1);
+
+              // Put card back in deck
+              setDeckState((prevDeck) => ({
+                ...prevDeck,
+                [card]: (prevDeck[card] || 0) + 1,
+              }));
+
+              return {
+                ...player,
+                currentRoundCards: newCards,
+                currentRoundScore: calculateRoundScore(
+                  newCards,
+                  player.currentRoundModifiers
+                ),
+                hasBusted: false, // Reset bust state when undoing
               };
             }
           }
@@ -362,6 +520,7 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
             bustProbability={calculateBustProbability(player)}
             onDrawCard={drawCard}
             onStay={playerStays}
+            onUndoCard={undoCardDraw}
           />
         ))}
       </div>

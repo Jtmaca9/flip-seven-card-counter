@@ -11,7 +11,7 @@ export default function DeckTracker({
 }: DeckTrackerProps) {
   const numberCards = Array.from({ length: 13 }, (_, i) => i.toString());
   const modifierCards = ["+2", "+4", "+6", "+8", "+10", "X2"];
-  const actionCards = ["Freeze", "Flip3", "2ndChance"];
+  const actionCards = ["Freeze", "Flip3", "2nd Chance"];
 
   const getCardCountColor = (count: number, maxCount: number) => {
     const ratio = count / maxCount;

@@ -5,6 +5,7 @@ interface PlayerBoxProps {
   bustProbability: number;
   onDrawCard: (playerId: number, card: string) => void;
   onStay: (playerId: number) => void;
+  onUndoCard: (playerId: number, card: string, isModifier?: boolean) => void;
 }
 
 export default function PlayerBox({
@@ -12,10 +13,11 @@ export default function PlayerBox({
   bustProbability,
   onDrawCard,
   onStay,
+  onUndoCard,
 }: PlayerBoxProps) {
   const numberCards = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
   const modifierCards = ["+2", "+4", "+6", "+8", "+10", "X2"];
-  const actionCards = ["Freeze", "Flip3", "2ndChance"];
+  const actionCards = ["Freeze", "Flip3", "2nd Chance"];
 
   const getCardButtonClass = (card: string | number) => {
     const baseClass =
@@ -140,30 +142,34 @@ export default function PlayerBox({
       {/* Current Cards Display */}
       <div className="mb-3">
         <div className="text-xs font-semibold text-gray-600 mb-1">
-          Cards in Hand: ({player.currentRoundCards.length}/7)
+          Cards in Hand: ({player.currentRoundCards.length}/7) - Click to undo
         </div>
         <div className="min-h-[20px] text-xs">
           {player.currentRoundCards.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {player.currentRoundCards.map((card, index) => (
-                <span
+                <button
                   key={index}
-                  className="bg-blue-600 text-white px-2 py-1 rounded font-bold text-sm"
+                  onClick={() => onUndoCard(player.id, card.toString(), false)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded font-bold text-sm cursor-pointer transition-colors"
+                  title="Click to undo this card"
                 >
                   {card}
-                </span>
+                </button>
               ))}
             </div>
           )}
           {player.currentRoundModifiers.length > 0 && (
             <div className="flex flex-wrap gap-1 mt-1">
               {player.currentRoundModifiers.map((mod, index) => (
-                <span
+                <button
                   key={index}
-                  className="bg-purple-600 text-white px-2 py-1 rounded font-bold text-sm"
+                  onClick={() => onUndoCard(player.id, mod, true)}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 rounded font-bold text-sm cursor-pointer transition-colors"
+                  title="Click to undo this card"
                 >
                   {mod}
-                </span>
+                </button>
               ))}
             </div>
           )}
