@@ -181,18 +181,64 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
     let bustCards = 0;
     let totalRemainingCards = 0;
 
+    console.log(`🎯 BUST CALC for Player ${player.id}:`);
+    console.log(`📋 Cards in hand: [${player.currentRoundCards.join(", ")}]`);
+    console.log(`🎴 Current deck state:`, deckState);
+
+    // Define valid number cards explicitly
+    const numberCards = [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+      "10",
+      "11",
+      "12",
+    ];
+
     // Count ALL cards in deck for total (to match deck tracker percentages)
     Object.entries(deckState).forEach(([card, count]) => {
       totalRemainingCards += count;
-      // Only count bust cards from number cards the player already has
-      if (!isNaN(parseInt(card)) && cardsInHand.has(parseInt(card))) {
-        bustCards += count;
+      // Only count bust cards from actual number cards the player already has
+      if (numberCards.includes(card) && cardsInHand.has(parseInt(card))) {
+        // BUG FIX: Ensure count is actually > 0 to prevent false positives
+        if (count > 0) {
+          bustCards += count;
+          console.log(
+            `💥 BUST CARD: ${card} has ${count} copies in deck (would cause bust)`
+          );
+        } else {
+          console.log(
+            `✅ SAFE: ${card} would cause bust but has ${count} copies left (none)`
+          );
+        }
       }
     });
 
-    return totalRemainingCards > 0
-      ? (bustCards / totalRemainingCards) * 100
-      : 0;
+    // BUG FIX: If no total cards remain, probability should be 0
+    if (totalRemainingCards === 0) {
+      console.log(`⚠️ DECK EMPTY: Setting bust probability to 0%`);
+      return 0;
+    }
+
+    const probability = (bustCards / totalRemainingCards) * 100;
+
+    // BUG FIX: Extra validation - if no bust cards exist, ensure 0%
+    const finalProbability = bustCards === 0 ? 0 : probability;
+
+    console.log(
+      `📊 Bust calculation: ${bustCards} bust cards / ${totalRemainingCards} total = ${finalProbability.toFixed(
+        1
+      )}%`
+    );
+
+    return finalProbability;
   };
 
   // Update deck state when a card is drawn
