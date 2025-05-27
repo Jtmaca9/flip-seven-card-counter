@@ -14,7 +14,7 @@ Flip Seven is a strategic card game where players draw cards trying to get exact
 
 ### Game Rules
 
-**Deck Composition (78 cards total):**
+**Deck Composition (94 cards total):**
 
 - **Number Cards (0-12):** Cards numbered 0-12 with quantities matching their numbers
   - 0: 1 card, 1: 1 card, 2: 2 cards, 3: 3 cards... 12: 12 cards
