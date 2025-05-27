@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import PlayerBox from "./PlayerBox";
 import DeckTracker from "./DeckTracker";
 
@@ -13,6 +13,7 @@ export interface Player {
   totalScore: number;
   hasBusted: boolean;
   hasStayed: boolean;
+  hasFlipped: boolean;
 }
 
 interface GameBoardProps {
@@ -25,6 +26,7 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
   const [deckState, setDeckState] = useState<{ [key: string]: number }>({});
   const [discardPile, setDiscardPile] = useState<{ [key: string]: number }>({});
   const [round, setRound] = useState(1);
+  const reshufflingRef = useRef(false);
 
   // Initialize deck state with correct card quantities
   const initializeDeck = () => {
@@ -74,14 +76,55 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
 
   // Shuffle discard pile back into deck when deck is empty
   const shuffleDiscardIntoDeck = () => {
+    if (reshufflingRef.current) {
+      console.log("⚠️ RESHUFFLE ALREADY IN PROGRESS - SKIPPING");
+      return;
+    }
+
+    reshufflingRef.current = true;
+    console.log("🔄 RESHUFFLING: Moving discard pile back to deck");
+
+    const totalInDiscard = Object.values(discardPile).reduce(
+      (sum, count) => sum + count,
+      0
+    );
+    console.log(`📦 Cards in discard pile: ${totalInDiscard}`);
+
+    // Debug: Check current deck state
+    const currentDeckTotal = Object.values(deckState).reduce(
+      (sum, count) => sum + count,
+      0
+    );
+    console.log(`🎯 Current deck total before shuffle: ${currentDeckTotal}`);
+    console.log("🔍 Current deck state:", deckState);
+    console.log("🔍 Current discard state:", discardPile);
+
     setDeckState((prev) => {
+      console.log("📝 Previous deck state in setter:", prev);
+      // Move cards from discard to deck (should be empty deck)
       const newDeck = { ...prev };
       Object.entries(discardPile).forEach(([card, count]) => {
         newDeck[card] = (newDeck[card] || 0) + count;
+        console.log(
+          `🔀 Moving ${count} of ${card} to deck. New count: ${newDeck[card]}`
+        );
       });
+      const totalAfterShuffle = Object.values(newDeck).reduce(
+        (sum, count) => sum + count,
+        0
+      );
+      console.log(`🎴 Cards in deck after shuffle: ${totalAfterShuffle}`);
+      console.log("🔍 New deck state:", newDeck);
       return newDeck;
     });
+
     setDiscardPile(initializeDiscardPile());
+
+    // Reset the flag after a brief delay
+    setTimeout(() => {
+      reshufflingRef.current = false;
+      console.log("✅ RESHUFFLE COMPLETE - Flag reset");
+    }, 100);
   };
 
   // Check if deck needs reshuffling
@@ -102,6 +145,7 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
         totalScore: 0,
         hasBusted: false,
         hasStayed: false,
+        hasFlipped: false,
       });
     }
     setPlayers(initialPlayers);
@@ -112,7 +156,9 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
   // Check if round is complete
   const isRoundComplete = () => {
     if (players.length === 0) return false;
-    return players.every((player) => player.hasBusted || player.hasStayed);
+    return players.every(
+      (player) => player.hasBusted || player.hasStayed || player.hasFlipped
+    );
   };
 
   // Calculate bust probability for a player
@@ -120,6 +166,7 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
     if (
       player.hasBusted ||
       player.hasStayed ||
+      player.hasFlipped ||
       player.currentRoundCards.length === 0
     ) {
       return 0;
@@ -150,15 +197,39 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
 
   // Update deck state when a card is drawn
   const drawCard = (playerId: number, card: string) => {
-    // Check if we need to shuffle discard pile first
-    if (getTotalCardsInDeck() === 0) {
-      shuffleDiscardIntoDeck();
+    // Check if card is available in deck (before any reshuffling)
+    const cardCount = deckState[card] || 0;
+    if (cardCount <= 0) {
+      console.warn(
+        `Card ${card} is not available in deck (count: ${cardCount})`
+      );
+      return; // Exit early if card is not available
     }
 
-    setDeckState((prev) => ({
-      ...prev,
-      [card]: Math.max(0, (prev[card] || 0) - 1),
-    }));
+    // Remove card from deck
+    setDeckState((prev) => {
+      const newDeck = {
+        ...prev,
+        [card]: Math.max(0, (prev[card] || 0) - 1),
+      };
+
+      // Check if deck is now empty and trigger reshuffle
+      const totalCards = Object.values(newDeck).reduce(
+        (sum, count) => sum + count,
+        0
+      );
+      console.log(`🎯 Drew ${card}, deck now has ${totalCards} cards`);
+
+      if (totalCards === 0) {
+        console.log("⚠️ DECK NOW EMPTY - Triggering reshuffle");
+        // Use setTimeout to ensure state update completes before reshuffling
+        setTimeout(() => {
+          shuffleDiscardIntoDeck();
+        }, 0);
+      }
+
+      return newDeck;
+    });
 
     // Check if this would trigger second chance before updating player state
     const player = players.find((p) => p.id === playerId);
@@ -218,6 +289,38 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
       }
     }
 
+    // Handle duplicate action cards separately to avoid state update conflicts
+    const targetPlayer = players.find((p) => p.id === playerId);
+    if (!targetPlayer) return;
+
+    // Check for duplicate action cards that should be auto-discarded
+    const singleUseActionCards = ["Freeze"];
+    if (
+      singleUseActionCards.includes(card) &&
+      targetPlayer.currentRoundModifiers.includes(card)
+    ) {
+      // Auto-discard duplicate single-use action card
+      setDiscardPile((prev) => ({
+        ...prev,
+        [card]: (prev[card] || 0) + 1,
+      }));
+      return; // Exit early, don't update player state
+    }
+
+    // Special handling for 2nd Chance duplicates
+    if (
+      card === "2nd Chance" &&
+      targetPlayer.currentRoundModifiers.includes(card)
+    ) {
+      // Auto-discard duplicate 2nd Chance
+      setDiscardPile((prev) => ({
+        ...prev,
+        [card]: (prev[card] || 0) + 1,
+      }));
+      return; // Exit early, don't update player state
+    }
+
+    // If we get here, process the card normally
     setPlayers((prev) =>
       prev.map((player) => {
         if (player.id === playerId) {
@@ -244,38 +347,31 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
             const cardNum = parseInt(card);
             const newCards = [...player.currentRoundCards, cardNum];
             const wouldBust = player.currentRoundCards.includes(cardNum);
+            const newScore = wouldBust
+              ? 0
+              : calculateRoundScore(newCards, player.currentRoundModifiers);
+
+            // Check if player has flipped (7 different number cards without busting)
+            const hasFlipped = newCards.length === 7 && !wouldBust;
 
             return {
               ...player,
               currentRoundCards: newCards,
               hasBusted: wouldBust,
-              currentRoundScore: wouldBust
-                ? 0
-                : calculateRoundScore(newCards, player.currentRoundModifiers),
+              hasFlipped: hasFlipped,
+              hasStayed: hasFlipped, // Auto-stay when flipped (only if not busted)
+              currentRoundScore: newScore,
+              totalScore: hasFlipped
+                ? player.totalScore + newScore
+                : player.totalScore, // Auto-bank points when flipped
             };
           } else {
-            // Action/Modifier card
+            // Action/Modifier card - add to hand
             const newModifiers = [...player.currentRoundModifiers, card];
             const newScore = calculateRoundScore(
               player.currentRoundCards,
               newModifiers
             );
-
-            // Check if player already has this action card (except modifiers like +2, +4, etc.)
-            const actionCards = ["Freeze", "Flip3", "2nd Chance"];
-            if (
-              actionCards.includes(card) &&
-              player.currentRoundModifiers.includes(card)
-            ) {
-              // Auto-discard duplicate action card
-              setDiscardPile((prev) => ({
-                ...prev,
-                [card]: (prev[card] || 0) + 1,
-              }));
-
-              // Don't add to hand, keep current state
-              return player;
-            }
 
             // Check if it's a Freeze card - automatically make player stay
             if (card === "Freeze") {
@@ -330,6 +426,8 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
                   newModifiers
                 ),
                 hasBusted: false, // Reset bust state when undoing
+                hasFlipped: false, // Reset flipped state when undoing
+                hasStayed: false, // Reset stayed state when undoing
               };
             }
           } else {
@@ -353,6 +451,8 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
                   player.currentRoundModifiers
                 ),
                 hasBusted: false, // Reset bust state when undoing
+                hasFlipped: newCards.length === 7, // Check if still flipped after undo
+                hasStayed: newCards.length === 7, // Check if still stayed after undo
               };
             }
           }
@@ -459,6 +559,7 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
         currentRoundScore: 0,
         hasBusted: false,
         hasStayed: false,
+        hasFlipped: false,
       }))
     );
 
@@ -518,6 +619,7 @@ export default function GameBoard({ numPlayers, onReset }: GameBoardProps) {
             key={player.id}
             player={player}
             bustProbability={calculateBustProbability(player)}
+            deckState={deckState}
             onDrawCard={drawCard}
             onStay={playerStays}
             onUndoCard={undoCardDraw}

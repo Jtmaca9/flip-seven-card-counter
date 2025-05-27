@@ -3,6 +3,7 @@ import { Player } from "./GameBoard";
 interface PlayerBoxProps {
   player: Player;
   bustProbability: number;
+  deckState: { [key: string]: number };
   onDrawCard: (playerId: number, card: string) => void;
   onStay: (playerId: number) => void;
   onUndoCard: (playerId: number, card: string, isModifier?: boolean) => void;
@@ -11,6 +12,7 @@ interface PlayerBoxProps {
 export default function PlayerBox({
   player,
   bustProbability,
+  deckState,
   onDrawCard,
   onStay,
   onUndoCard,
@@ -23,12 +25,44 @@ export default function PlayerBox({
     const baseClass =
       "text-xs font-bold py-1 px-2 rounded transition-colors duration-200";
     const isNumberCard = !isNaN(Number(card));
+    const isDisabled = isCardDisabled(card);
+
+    // Add disabled styling if card is disabled
+    const disabledClass = isDisabled
+      ? "bg-gray-400 text-gray-600 cursor-not-allowed"
+      : "";
+
+    if (isDisabled) {
+      return `${baseClass} ${disabledClass}`;
+    }
 
     if (isNumberCard) {
       return `${baseClass} bg-blue-500 hover:bg-blue-600 text-white`;
     } else {
       // Modifier or action cards - check if already used
       const hasCard = player.currentRoundModifiers.includes(card.toString());
+
+      // Special handling for Flip3 which can have multiples
+      if (card.toString() === "Flip3") {
+        if (hasCard) {
+          // Show orange background if player has Flip3 but can still draw more
+          return `${baseClass} bg-orange-500 hover:bg-orange-600 text-white`;
+        } else {
+          return `${baseClass} bg-purple-500 hover:bg-purple-600 text-white`;
+        }
+      }
+
+      // Special handling for 2nd Chance which auto-discards duplicates
+      if (card.toString() === "2nd Chance") {
+        if (hasCard) {
+          // Show yellow background if player has 2nd Chance (duplicate will auto-discard)
+          return `${baseClass} bg-yellow-500 hover:bg-yellow-600 text-white`;
+        } else {
+          return `${baseClass} bg-purple-500 hover:bg-purple-600 text-white`;
+        }
+      }
+
+      // Other action cards are single-use
       if (hasCard) {
         return `${baseClass} bg-green-500 text-white cursor-not-allowed`;
       }
@@ -37,21 +71,30 @@ export default function PlayerBox({
   };
 
   const isCardDisabled = (card: string | number) => {
-    // Only disable if player has busted or stayed
-    if (player.hasBusted || player.hasStayed) return true;
+    // Only disable if player has busted, stayed, or flipped
+    if (player.hasBusted || player.hasStayed || player.hasFlipped) return true;
+
+    // Check if card is available in deck
+    const cardCount = deckState[card.toString()] || 0;
+    if (cardCount <= 0) return true;
 
     const isNumberCard = !isNaN(Number(card));
     if (isNumberCard) {
       // Number cards can always be drawn (duplicates cause bust)
       return false;
     } else {
-      // Modifier/action cards can only be used once per round
+      // Flip3 can have multiples, 2nd Chance auto-discards duplicates, others are single-use
+      if (card.toString() === "Flip3" || card.toString() === "2nd Chance") {
+        return false; // Allow multiple draws
+      }
+      // Other modifier/action cards can only be used once per round
       return player.currentRoundModifiers.includes(card.toString());
     }
   };
 
   const getPlayerStatusClass = () => {
     if (player.hasBusted) return "border-red-500 bg-red-50/50";
+    if (player.hasFlipped) return "border-purple-500 bg-purple-50/50";
     if (player.hasStayed) return "border-green-500 bg-green-50/50";
     return "border-gray-300 bg-white/90";
   };
@@ -60,6 +103,7 @@ export default function PlayerBox({
     if (
       player.hasBusted ||
       player.hasStayed ||
+      player.hasFlipped ||
       player.currentRoundCards.length === 0
     ) {
       return null;
@@ -108,12 +152,28 @@ export default function PlayerBox({
     >
       {/* Player Header */}
       <div className="text-center mb-3">
-        <h3 className="text-lg font-bold text-gray-800">{player.name}</h3>
-        <div className="flex justify-between text-sm mb-2">
-          <span className="text-gray-600">
-            Round: {player.currentRoundScore}
-          </span>
-          <span className="font-bold">Total: {player.totalScore}</span>
+        <h3 className="text-lg font-bold text-gray-800 mb-2">{player.name}</h3>
+
+        {/* Score Display - Always Prominent */}
+        <div className="bg-gray-50 rounded-lg p-3 mb-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="text-center">
+              <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                Round Score
+              </div>
+              <div className="text-xl font-bold text-blue-600">
+                {player.currentRoundScore}
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                Total Score
+              </div>
+              <div className="text-xl font-bold text-green-600">
+                {player.totalScore}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Status indicators */}
@@ -122,7 +182,12 @@ export default function PlayerBox({
             💥 BUSTED
           </div>
         )}
-        {player.hasStayed && (
+        {player.hasFlipped && (
+          <div className="bg-purple-500 text-white text-sm font-bold py-2 px-3 rounded-lg mt-2">
+            ⭐ FLIPPED
+          </div>
+        )}
+        {player.hasStayed && !player.hasFlipped && (
           <div className="bg-green-500 text-white text-sm font-bold py-2 px-3 rounded-lg mt-2">
             ✓ STAYED
           </div>
@@ -228,7 +293,13 @@ export default function PlayerBox({
               onClick={() => onDrawCard(player.id, card)}
               disabled={isCardDisabled(card)}
               className={getCardButtonClass(card)}
-              title={card === "Freeze" ? "Auto-stays when drawn" : undefined}
+              title={
+                card === "Freeze"
+                  ? "Auto-stays when drawn"
+                  : card === "2nd Chance"
+                  ? "Duplicates auto-discard"
+                  : undefined
+              }
             >
               {card === "Freeze" ? "Freeze ⏸️" : card}
             </button>
@@ -239,10 +310,14 @@ export default function PlayerBox({
       {/* Pass/Stay Button */}
       <button
         onClick={() => onStay(player.id)}
-        disabled={player.hasBusted || player.hasStayed}
+        disabled={player.hasBusted || player.hasStayed || player.hasFlipped}
         className="w-full bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-lg transition-colors"
       >
-        {player.hasStayed ? "Stayed" : "Pass / Stay"}
+        {player.hasFlipped
+          ? "Flipped"
+          : player.hasStayed
+          ? "Stayed"
+          : "Pass / Stay"}
       </button>
     </div>
   );
